@@ -95,7 +95,7 @@ export const action = async ({request}: ActionFunctionArgs)=>{
 
   const mutationResponse = await admin.graphql(
     `#graphql
-    mutation saveLoyaltySettings($metafields: [MetafieldInput!]!) {
+    mutation saveLoyaltySettings($metafields: [MetafieldsSetInput!]!) {
       metafieldsSet(metafields: $metafields) {
         metafields {
           key
