@@ -25,7 +25,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const response = await admin.graphql(
     `#graphql
      query loyaltySettings {
-  shop {
+  currentAppInstallation {
     metafield(namespace: "loyalty", key: "settings") {
       value
     }
@@ -34,7 +34,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   );
   const responseJson = await response.json();
 
-  const rawValue = responseJson?.data?.shop?.metafield?.value;
+  const rawValue = responseJson?.data?.currentAppInstallation?.metafield?.value;
   if (!rawValue) {
     return {settings: DEFAULT_SETTINGS};
   }
@@ -71,18 +71,27 @@ export const action = async ({request}: ActionFunctionArgs)=>{
       if(Object.keys(errors).length > 0){
         return {ok: false, errors};
       }
-      const shopQueryResponse = await admin.graphql(
+      const appInstallationQueryResponse = await admin.graphql(
         `#graphql
-        query loyaltySettingsShopId{
-        shop{
-        id
+        query loyaltySettingsAppInstallationId {
+          currentAppInstallation {
+            id
+          }
         }`,
       );
     
 
-  const shopQueryResponseJson = await shopQueryResponse.json();
-  const ownerId = shopQueryResponseJson?.data?.shop?.id;
+  const appInstallationQueryResponseJson = await appInstallationQueryResponse.json();
+  const ownerId = appInstallationQueryResponseJson?.data?.currentAppInstallation?.id;
 
+  if (!ownerId) {
+    return {
+      ok: false,
+      errors: {
+        form: "Could not load the current app installation. Please try again.",
+      },
+    };
+  }
 
   const mutationResponse = await admin.graphql(
     `#graphql
