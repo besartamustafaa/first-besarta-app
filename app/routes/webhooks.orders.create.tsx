@@ -8,6 +8,7 @@ type OrderWebhookPayload = {
   total_outstanding?: string | number | null;
   customer?: {
     id?: number | string | null;
+    admin_graphql_api_id?: string | null;
   } | null;
 };
 
@@ -28,7 +29,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   // Get order information.
   const orderId = orderPayload.id ?? null;
-  const customerId = orderPayload.customer?.id ?? null;
+  const customerId =
+    orderPayload.customer?.admin_graphql_api_id ??
+    orderPayload.customer?.id ??
+    null;
 
   // Choose the order total used for calculating points.
   const orderTotal =
@@ -40,6 +44,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   console.log(`Received ${topic} webhook for ${shop}`);
   console.log(
     `[orders/create] orderId=${orderId} customerId=${customerId} orderTotal=${orderTotal}`,
+  );
+  console.log(
+    `[orders/create] payload=${JSON.stringify(orderPayload)}`,
   );
 
   // Stop if the order has no customer.
@@ -91,6 +98,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   let pointsPerDollar = 0;
 
+  console.log(`[orders/create] loyaltySettingsRaw=${settingsRaw}`);
+
   if (settingsRaw) {
     try {
       const parsedSettings = JSON.parse(settingsRaw);
@@ -113,6 +122,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   // Read current customer points.
   const currentPointsRaw =
     queryJson?.data?.customer?.metafield?.value ?? null;
+
+  console.log(`[orders/create] currentPointsRaw=${currentPointsRaw}`);
 
   const parsedCurrentPoints = Number(currentPointsRaw);
 

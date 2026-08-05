@@ -37,8 +37,7 @@ api_version = "2026-07"
   uri = "/webhooks/app/uninstalled"
   topics = ["app/uninstalled"]
 
-  # Disabled in local development because Shopify requires approval for webhooks
-  # that use protected customer data.
+  # Disabled locally until the app is approved for protected customer data.
   # [[webhooks.subscriptions]]
   # uri = "/webhooks/orders/create"
   # topics = ["orders/create"]
