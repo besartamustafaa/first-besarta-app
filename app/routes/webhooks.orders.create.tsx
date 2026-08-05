@@ -1,11 +1,20 @@
+import type { ActionFunctionArgs } from "react-router";
 import { authenticate } from "../shopify.server";
 
-export const action = async ({ request }) => {
+type OrderWebhookPayload = {
+  id?: number | null;
+  current_total_price?: string | number | null;
+  total_price?: string | number | null;
+  total_outstanding?: string | number | null;
+  customer?: {
+    id?: number | string | null;
+  } | null;
+};
 
-  const { admin, payload, topic, shop } =
-    await authenticate.webhook(request);
+export const action = async ({ request }: ActionFunctionArgs) => {
+  const { admin, payload, topic, shop } = await authenticate.webhook(request);
 
-  let orderPayload = {};
+  let orderPayload: OrderWebhookPayload = {};
 
   if (payload && typeof payload === "object") {
     orderPayload = payload;
@@ -61,7 +70,7 @@ export const action = async ({ request }) => {
         }
 
         customer(id: $customerId) {
-          metafield(namespace: "$app:loyalty", key: "points") {
+          metafield(namespace: "loyalty", key: "points") {
             value
           }
         }
@@ -151,7 +160,7 @@ export const action = async ({ request }) => {
         metafields: [
           {
             ownerId: customerGid,
-            namespace: "$app:loyalty",
+            namespace: "loyalty",
             key: "points",
             type: "number_integer",
             value: String(updatedPoints),
