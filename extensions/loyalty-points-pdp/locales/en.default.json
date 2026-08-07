@@ -1,0 +1,6 @@
+{
+  "settings":{
+    "extension_name":"Loyalty Points",
+    "points_message":"Buy this product and earn {{ points }} points"
+  }
+}
