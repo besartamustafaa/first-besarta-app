@@ -7,7 +7,8 @@ application_url = "https://example.com"
 embedded = true
 
 [access_scopes]
-scopes = "read_customers,write_products,write_metaobject_definitions,write_metaobjects,write_customers"
+scopes = "write_products,write_metaobject_definitions,write_metaobjects,write_customers,read_customers,read_orders"
+
 
 [shop.metafields.loyalty.points_per_dollar_public]
 type = "number_decimal"
@@ -18,9 +19,15 @@ description = "Derived public value for theme display. Source of truth is app me
 admin = "merchant_read_write"
 storefront = "public_read"
 
-[[extensions.metafields]]
-namespace = "loyalty"
-key = "points_balance"
+
+[customer.metafields.loyalty.points]
+type = "number_integer"
+name = "Loyalty Points"
+description = "Stores customer loyalty points balance"
+
+  [customer.metafields.loyalty.points.access]
+  admin = "merchant_read_write"
+
 
 [webhooks]
 api_version = "2026-07"
@@ -33,6 +40,11 @@ api_version = "2026-07"
   uri = "/webhooks/app/uninstalled"
 
 
+ [[webhooks.subscriptions]]
+  uri = "/webhooks/orders/create"
+   topics = ["orders/create"]
+
+
 [auth]
 redirect_urls = [
   "https://example.com/api/auth"
@@ -41,3 +53,12 @@ redirect_urls = [
 
 [build]
 automatically_update_urls_on_dev = true
+
+[metaobjects.app.example.fields.description]
+name = "Description"
+type = "multi_line_text_field"
+
+[app_proxy]
+url = "https://example.com/proxy/loyalty"
+subpath = "loyalty"
+prefix = "apps"

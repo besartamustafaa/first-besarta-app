@@ -81,19 +81,34 @@ export const action = async ({request}: ActionFunctionArgs)=>{
         query loyaltySettingsOwnerIds {
           currentAppInstallation {
             id
+            metafield(namespace: "loyalty", key: "discount_id") {
+              value
+            }
           }
         }`,
       );
     
 
   const idsQueryJson = await idsQueryResponse.json();
-  const appInstallationId = idsQueryJson?.data?.currentAppInstallation?.id;
+  const appInstallationId =
+    idsQueryJson?.data?.currentAppInstallation?.id;
 
+const discountId =
+  idsQueryJson?.data?.currentAppInstallation?.metafield?.value ?? null;
   if (!appInstallationId) {
     return {
       ok: false,
       errors: {
         form: "Could not load app installation. Please try again.",
+      },
+    };
+  }
+
+  if (!discountId) {
+    return {
+      ok: false,
+      errors: {
+        form: "Could not load loyalty discount id for function settings sync.",
       },
     };
   }
@@ -168,7 +183,10 @@ export const action = async ({request}: ActionFunctionArgs)=>{
       },
     };
   }
-
+const settingsJsonValue = JSON.stringify({
+        pointsPerDollar,
+        rewardValuePerPoint,
+      });
   const storefrontSyncResponse = await admin.graphql(
     `#graphql
       mutation syncStorefrontPoints($metafields: [MetafieldsSetInput!]!) {
@@ -183,12 +201,18 @@ export const action = async ({request}: ActionFunctionArgs)=>{
       variables: {
         metafields: [
           {
-            // Read-only storefront projection derived from app metafield source.
-            ownerId: shopId,
+            ownerId: appInstallationId,
             namespace: "loyalty",
-            key: "points_per_dollar_public",
-            type: "number_decimal",
-            value: String(storefrontPointsPerDollar),
+            key: "settings",
+            type: "json",
+            value: settingsJsonValue,
+          },
+          {
+            ownerId: discountId,
+            namespace: "loyalty",
+            key: "settings",
+            type: "json",
+            value: settingsJsonValue,
           },
         ],
       },
