@@ -1,6 +1,11 @@
 import type { ActionFunctionArgs } from "react-router";
 import { authenticate } from "../shopify.server";
 
+interface OrderAttribute {
+  key?: string;
+  value?: string;
+}
+
 interface OrderPayload {
   id?: number;
   customer?: {
@@ -9,6 +14,7 @@ interface OrderPayload {
   current_total_price?: string | number | null;
   total_price?: string | number | null;
   total_outstanding?: string | number | null;
+  note_attributes?: OrderAttribute[];
 }
 
 interface LoyaltySettings {
@@ -16,8 +22,11 @@ interface LoyaltySettings {
 }
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const { admin, payload, topic, shop } =
-    await authenticate.webhook(request);
+  try {
+    const { admin, payload, topic, shop } =
+      await authenticate.webhook(request);
+
+    console.log("Webhook authenticated!");
 
 
   let orderPayload: OrderPayload = {};
@@ -47,7 +56,21 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     orderPayload.total_outstanding ??
     null;
 
+  const redeemedPointsRaw =
+    orderPayload.note_attributes?.find(
+      (attribute) =>
+        attribute.key === "redeem_points",
+    )?.value;
 
+  const redeemedPointsNumber =
+    Number(redeemedPointsRaw);
+
+
+  const redeemedPoints =
+    Number.isFinite(redeemedPointsNumber) &&
+    redeemedPointsNumber > 0
+      ? redeemedPointsNumber
+      : 0;
 
   console.log(`Received ${topic} webhook for ${shop}`);
 
@@ -198,7 +221,12 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
 
   const updatedPoints =
-    currentPoints + earnedPoints;
+    currentPoints +
+    earnedPoints -
+    redeemedPoints;
+
+  const finalPoints =
+    Math.max(updatedPoints, 0);
 
 
 
@@ -219,7 +247,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   );
 
   console.log(
-    `[orders/create] updatedPoints=${updatedPoints}`,
+  `[orders/create] redeemedPoints=${redeemedPoints}`,
+);
+
+  console.log(
+    `[orders/create] finalPoints=${finalPoints}`,
   );
 
 
@@ -257,7 +289,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
               type: "number_integer",
 
-              value: String(updatedPoints),
+              value: String(finalPoints),
             },
           ],
 
@@ -276,6 +308,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       `[orders/create] Failed to save points: ${savePointsErrors[0].message}`,
     );
 
+  }} catch (error) {
+    console.error("Webhook auth failed:", error);
+    return new Response("Unauthorized", { status: 401 });
   }
 
   return new Response();
