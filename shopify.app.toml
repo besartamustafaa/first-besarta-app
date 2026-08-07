@@ -18,6 +18,9 @@ description = "Derived public value for theme display. Source of truth is app me
 admin = "merchant_read_write"
 storefront = "public_read"
 
+[[extensions.metafields]]
+namespace = "loyalty"
+key = "points_balance"
 
 [webhooks]
 api_version = "2026-07"
