@@ -1,6 +1,25 @@
 import type { ActionFunctionArgs } from "react-router";
 import { authenticate } from "../shopify.server";
 
+interface DiscountApplication {
+  title?: string;
+  value?: string | number;
+}
+
+interface DiscountAllocation {
+  discount_application_index?: number;
+  amount?: string | number;
+  amount_set?: {
+    shop_money?: {
+      amount?: string | number;
+    };
+  };
+}
+
+interface LineItem {
+  discount_allocations?: DiscountAllocation[];
+}
+
 interface OrderAttribute {
   key?: string;
   value?: string;
@@ -9,90 +28,71 @@ interface OrderAttribute {
 interface OrderPayload {
   id?: number;
   customer?: {
-    id?: number | string | null;
+    id?: string | number | null;
   } | null;
   current_total_price?: string | number | null;
-  total_price?: string | number | null;
-  total_outstanding?: string | number | null;
+  discount_applications?: DiscountApplication[];
+  line_items?: LineItem[];
   note_attributes?: OrderAttribute[];
 }
 
 interface LoyaltySettings {
   pointsPerDollar?: number;
+  rewardValuePerPoint?: number;
 }
 
-export const action = async ({ request }: ActionFunctionArgs) => {
-  try {
-    const { admin, payload, topic, shop } =
-      await authenticate.webhook(request);
+export const action = async ({
+  request,
+}: ActionFunctionArgs) => {
+  const {
+    admin,
+    payload,
+    topic,
+    shop,
+  } = await authenticate.webhook(request);
 
-    console.log("Webhook authenticated!");
-
+  if (!admin) {
+    console.log(
+      "[orders/create] Missing admin client",
+    );
+    return new Response();
+  }
 
   let orderPayload: OrderPayload = {};
 
-
-  if (payload && typeof payload === "object") {
+  if (typeof payload === "object" && payload !== null) {
     orderPayload = payload as OrderPayload;
-
   } else if (typeof payload === "string") {
+
     try {
-      orderPayload = JSON.parse(payload) as OrderPayload;
+      orderPayload = JSON.parse(payload);
     } catch {
-      orderPayload = {};
+      console.log(
+        "[orders/create] Invalid payload JSON",
+      );
+      return new Response();
     }
   }
 
-
   const orderId = orderPayload.id ?? null;
-
   const customerId =
     orderPayload.customer?.id ?? null;
-
-
-  const orderTotal =
-    orderPayload.current_total_price ??
-    orderPayload.total_price ??
-    orderPayload.total_outstanding ??
-    null;
-
-  const redeemedPointsRaw =
-    orderPayload.note_attributes?.find(
-      (attribute) =>
-        attribute.key === "redeem_points",
-    )?.value;
-
-  const redeemedPointsNumber =
-    Number(redeemedPointsRaw);
-
-
-  const redeemedPoints =
-    Number.isFinite(redeemedPointsNumber) &&
-    redeemedPointsNumber > 0
-      ? redeemedPointsNumber
-      : 0;
-
-  console.log(`Received ${topic} webhook for ${shop}`);
-
   console.log(
-    `[orders/create] orderId=${orderId} customerId=${customerId} orderTotal=${orderTotal}`,
+    `[orders/create] topic=${topic} shop=${shop} order=${orderId}`,
   );
-
-
-
   if (!customerId) {
-    console.log("[orders/create] Order has no customer");
+    console.log(
+      "[orders/create] No customer attached",
+    );
     return new Response();
   }
 
-
-
-  if (!admin) {
-    console.log("[orders/create] No admin client available");
+  if (!orderId) {
+    console.log(
+      "[orders/create] Missing order id",
+    );
     return new Response();
   }
-
-
 
   const customerGid =
     String(customerId).startsWith(
@@ -101,173 +101,239 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       ? String(customerId)
       : `gid://shopify/Customer/${customerId}`;
 
-
-
-  const dataQueryResponse = await admin.graphql(
+  const dataResponse = await admin.graphql(
     `#graphql
       query loyaltyWebhookData($customerId: ID!) {
-
         currentAppInstallation {
-
           metafield(
-            namespace: "loyalty",
-            key: "settings"
-          ) {
+            namespace:"loyalty"
+            key:"settings"
+          ){
+            value
+          }
+          metafield(
+            namespace:"loyalty"
+            key:"processed_orders"
+          ){
             value
           }
         }
-
-
-        customer(id: $customerId) {
-
+        customer(id:$customerId){
           metafield(
-            namespace: "$app:loyalty",
-            key: "points"
-          ) {
+            namespace:"$app:loyalty"
+            key:"points"
+          ){
             value
           }
         }
-
       }
     `,
     {
-      variables: {
+      variables:{
         customerId: customerGid,
       },
     },
   );
 
+  const dataJson = await dataResponse.json();
+  let processedOrders:string[] = [];
+  const processedRaw =
+    dataJson?.data
+      ?.currentAppInstallation
+      ?.metafield
+      ?.value;
 
-
-  const dataQueryJson = await dataQueryResponse.json();
-
-
-
-  const settingsRaw =
-    dataQueryJson?.data?.currentAppInstallation
-      ?.metafield?.value ?? null;
-
-
-
-  let pointsPerDollar = 0;
-
-
-
-  if (settingsRaw) {
-
-    try {
-
-      const parsedSettings =
-        JSON.parse(settingsRaw) as LoyaltySettings;
-
-
-      const parsedPointsPerDollar =
-        Number(parsedSettings?.pointsPerDollar);
-
-
-
-      if (
-        Number.isFinite(parsedPointsPerDollar) &&
-        parsedPointsPerDollar > 0
-      ) {
-        pointsPerDollar = parsedPointsPerDollar;
-      }
-
-
-    } catch {
-
-      pointsPerDollar = 0;
-
+  if(processedRaw){
+    try{
+      processedOrders =
+        JSON.parse(processedRaw);
+    }catch{
+      processedOrders = [];
     }
   }
 
+  if(
+    processedOrders.includes(String(orderId))
+  ){
+    console.log(
+      `[orders/create] Order ${orderId} already processed`,
+    );
+    return new Response();
+  }
+  const settingsRaw =
+    dataJson?.data
+      ?.currentAppInstallation
+      ?.metafield
+      ?.value;
+  let pointsPerDollar = 0;
+  let rewardValuePerPoint = 0;
 
-
+  if(settingsRaw){
+    try{
+      const settings =
+        JSON.parse(settingsRaw) as LoyaltySettings;
+      const earning =
+        Number(settings.pointsPerDollar);
+      const reward =
+        Number(settings.rewardValuePerPoint);
+      if(
+        Number.isFinite(earning) &&
+        earning > 0
+      ){
+        pointsPerDollar = earning;
+      }
+      if(
+        Number.isFinite(reward) &&
+        reward > 0
+      ){
+        rewardValuePerPoint = reward;
+      }
+    }catch{
+      console.log(
+        "[orders/create] Invalid loyalty settings",
+      );
+    }
+  }
   const currentPointsRaw =
-    dataQueryJson?.data?.customer
-      ?.metafield?.value ?? null;
+    dataJson?.data
+      ?.customer
+      ?.metafield
+      ?.value;
 
-
-
-  const parsedCurrentPoints =
+  const currentPointsNumber =
     Number(currentPointsRaw);
 
-
-
   const currentPoints =
-    Number.isFinite(parsedCurrentPoints)
-      ? parsedCurrentPoints
+    Number.isFinite(currentPointsNumber)
+      ? currentPointsNumber
       : 0;
 
 
-
-  const parsedOrderTotal =
-    Number(orderTotal);
-
-
-
-  const safeOrderTotal =
-    Number.isFinite(parsedOrderTotal)
-      ? parsedOrderTotal
-      : 0;
-
-
-
-  const earnedPoints =
-    Math.round(
-      safeOrderTotal * pointsPerDollar,
+  const orderTotal =
+    Number(
+      orderPayload.current_total_price ?? 0,
     );
 
 
-
-  const updatedPoints =
-    currentPoints +
-    earnedPoints -
-    redeemedPoints;
-
-  const finalPoints =
-    Math.max(updatedPoints, 0);
+  const earnedPoints =
+    Number.isFinite(orderTotal)
+      ? Math.round(
+          orderTotal * pointsPerDollar,
+        )
+      : 0;
 
 
+  const redemptionAttribute =
+    orderPayload.note_attributes?.find(
+      (attribute) =>
+        attribute.key ===
+        "loyalty_points_to_redeem",
+    );
 
-  console.log(
-    `[orders/create] orderTotal=${safeOrderTotal}`,
-  );
+  const attributeRedeemedPoints =
+    Number(
+      redemptionAttribute?.value ?? 0,
+    );
+  let redeemedPoints =
+    Number.isFinite(attributeRedeemedPoints) &&
+    attributeRedeemedPoints > 0
+      ? attributeRedeemedPoints
+      : 0;
+  if(redeemedPoints === 0){
+    const discounts =
+      orderPayload.discount_applications ?? [];
 
-  console.log(
-    `[orders/create] pointsPerDollar=${pointsPerDollar}`,
-  );
+    const loyaltyDiscountIndex =
+      discounts.findIndex(
+        (discount)=>
+          discount.title ===
+          "Loyalty points redemption",
+      );
+    let discountAmount = 0;
 
-  console.log(
-    `[orders/create] currentPoints=${currentPoints}`,
-  );
+    if(
+      loyaltyDiscountIndex >= 0
+    ){
+      for(
+        const item of
+        orderPayload.line_items ?? []
+      ){
+        for(
+          const allocation of
+          item.discount_allocations ?? []
+        ){
+          if(
+            allocation.discount_application_index !==
+            loyaltyDiscountIndex
+          ){
+            continue;
+          }
+          const amount =
+            Number(
+              allocation.amount ??
+              allocation.amount_set
+                ?.shop_money
+                ?.amount ??
+              0,
+            );
+          if(
+            Number.isFinite(amount)
+          ){
+            discountAmount += amount;
+          }
+        }
+      }
+    }
 
-  console.log(
-    `[orders/create] earnedPoints=${earnedPoints}`,
-  );
+    if(
+      rewardValuePerPoint > 0 &&
+      discountAmount > 0
+    ){
+      redeemedPoints =
+        Math.round(
+          discountAmount /
+          rewardValuePerPoint,
+        );
 
-  console.log(
-  `[orders/create] redeemedPoints=${redeemedPoints}`,
-);
+    }
 
-  console.log(
-    `[orders/create] finalPoints=${finalPoints}`,
-  );
+  }
 
+  if(
+    redeemedPoints > currentPoints
+  ){
 
+    redeemedPoints = currentPoints;
 
-  const savePointsResponse =
+  }
+
+  const newBalance =
+    Math.max(
+      0,
+      currentPoints +
+      earnedPoints -
+      redeemedPoints,
+    );
+console.log({
+    orderId,
+    currentPoints,
+    earnedPoints,
+    redeemedPoints,
+    newBalance,
+  });
+
+const updateResponse =
     await admin.graphql(
       `#graphql
-        mutation updateCustomerLoyaltyPoints(
-          $metafields: [MetafieldsSetInput!]!
-        ) {
+        mutation updatePoints(
+          $metafields:[MetafieldsSetInput!]!
+        ){
 
           metafieldsSet(
-            metafields: $metafields
-          ) {
+            metafields:$metafields
+          ){
 
-            userErrors {
+            userErrors{
               field
               message
             }
@@ -277,41 +343,80 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         }
       `,
       {
-        variables: {
-
-          metafields: [
+        variables:{
+          metafields:[
             {
-              ownerId: customerGid,
-
-              namespace: "$app:loyalty",
-
-              key: "points",
-
-              type: "number_integer",
-
-              value: String(finalPoints),
+              ownerId:customerGid,
+              namespace:"$app:loyalty",
+              key:"points",
+              type:"number_integer",
+              value:String(newBalance),
             },
           ],
-
         },
       },
     );
 
-  const savePointsJson =
-    await savePointsResponse.json();
+    const updateJson =
+    await updateResponse.json();
 
-  const savePointsErrors =
-    savePointsJson?.data?.metafieldsSet?.userErrors ?? [];
+  const updateErrors =
+    updateJson?.data
+      ?.metafieldsSet
+      ?.userErrors ?? [];
 
-  if (savePointsErrors.length > 0) {
+  if(updateErrors.length > 0){
     console.log(
-      `[orders/create] Failed to save points: ${savePointsErrors[0].message}`,
+      "[orders/create] Update failed",
+      updateErrors,
     );
-
-  }} catch (error) {
-    console.error("Webhook auth failed:", error);
-    return new Response("Unauthorized", { status: 401 });
+    return new Response();
   }
 
+  processedOrders.push(
+    String(orderId),
+  );
+
+  await admin.graphql(
+    `#graphql
+      mutation saveProcessedOrders(
+        $metafields:[MetafieldsSetInput!]!
+      ){
+
+        metafieldsSet(
+          metafields:$metafields
+        ){
+
+          userErrors{
+            field
+            message
+          }
+
+        }
+
+      }
+    `,
+    {
+      variables:{
+        metafields:[
+          {
+            ownerId:
+              dataJson.data.currentAppInstallation.id,
+
+            namespace:"loyalty",
+
+            key:"processed_orders",
+
+            type:"json",
+
+            value:
+              JSON.stringify(
+                processedOrders,
+              ),
+          },
+        ],
+      },
+    },
+  );
   return new Response();
 };
