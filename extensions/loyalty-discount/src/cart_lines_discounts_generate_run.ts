@@ -1,7 +1,6 @@
 import {
   DiscountClass,
   OrderDiscountSelectionStrategy,
-  ProductDiscountSelectionStrategy,
   CartInput,
   CartLinesDiscountsGenerateRunResult,
 } from '../generated/api';
@@ -10,81 +9,93 @@ import {
 export function cartLinesDiscountsGenerateRun(
   input: CartInput,
 ): CartLinesDiscountsGenerateRunResult {
-  if (!input.cart.lines.length) {
-    return {operations: []};
+
+  const rawRedeemedPoints =
+    input.cart.attribute?.value?.trim();
+
+  const redeemedPoints =
+    rawRedeemedPoints
+      ? Number.parseInt(rawRedeemedPoints, 10)
+      : NaN;
+
+
+  if (
+    !Number.isInteger(redeemedPoints) ||
+    redeemedPoints <= 0
+  ) {
+    return {
+      operations: [],
+    };
   }
 
-  const hasOrderDiscountClass = input.discount.discountClasses.includes(
-    DiscountClass.Order,
-  );
-  const hasProductDiscountClass = input.discount.discountClasses.includes(
-    DiscountClass.Product,
-  );
 
-  if (!hasOrderDiscountClass && !hasProductDiscountClass) {
-    return {operations: []};
+  const hasOrderDiscountClass =
+    input.discount.discountClasses.includes(
+      DiscountClass.Order,
+    );
+
+
+  if (!hasOrderDiscountClass) {
+    return {
+      operations: [],
+    };
   }
 
-  const maxCartLine = input.cart.lines.reduce((maxLine, line) => {
-    if (line.cost.subtotalAmount.amount > maxLine.cost.subtotalAmount.amount) {
-      return line;
-    }
-    return maxLine;
-  }, input.cart.lines[0]);
 
-  const operations = [];
+  const settings = input.discount.metafield?.jsonValue;
 
-  if (hasOrderDiscountClass) {
-    operations.push({
-      orderDiscountsAdd: {
-        candidates: [
-          {
-            message: '10% OFF ORDER',
-            targets: [
-              {
-                orderSubtotal: {
-                  excludedCartLineIds: [],
-                },
-              },
-            ],
-            value: {
-              percentage: {
-                value: 10,
-              },
-            },
-          },
-        ],
-        selectionStrategy: OrderDiscountSelectionStrategy.First,
-      },
-    });
+
+  const rewardValuePerPoint =
+    settings &&
+    typeof settings === "object" &&
+    "rewardValuePerPoint" in settings
+      ? Number(settings.rewardValuePerPoint)
+      : NaN;
+
+
+  if (
+    !Number.isFinite(rewardValuePerPoint) ||
+    rewardValuePerPoint <= 0
+  ) {
+    return {
+      operations: [],
+    };
   }
 
-  if (hasProductDiscountClass) {
-    operations.push({
-      productDiscountsAdd: {
-        candidates: [
-          {
-            message: '20% OFF PRODUCT',
-            targets: [
-              {
-                cartLine: {
-                  id: maxCartLine.id,
-                },
-              },
-            ],
-            value: {
-              percentage: {
-                value: 20,
-              },
-            },
-          },
-        ],
-        selectionStrategy: ProductDiscountSelectionStrategy.First,
-      },
-    });
-  }
+
+  const discountAmount =
+    redeemedPoints * rewardValuePerPoint;
+
 
   return {
-    operations,
+    operations: [
+      {
+        orderDiscountsAdd: {
+          selectionStrategy:
+            OrderDiscountSelectionStrategy.First,
+
+          candidates: [
+            {
+              message:
+                "Loyalty points redemption",
+
+              targets: [
+                {
+                  orderSubtotal: {
+                    excludedCartLineIds: [],
+                  },
+                },
+              ],
+
+              value: {
+                fixedAmount: {
+                  amount: discountAmount.toFixed(2),
+                },
+              },
+            },
+          ],
+        },
+      },
+    ],
   };
 }

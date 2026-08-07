@@ -7,7 +7,7 @@ application_url = "https://example.com"
 embedded = true
 
 [access_scopes]
-scopes = "write_products,write_metaobject_definitions,write_metaobjects"
+scopes = "read_customers,write_products,write_metaobject_definitions,write_metaobjects,write_customers"
 
 [shop.metafields.loyalty.points_per_dollar_public]
 type = "number_decimal"

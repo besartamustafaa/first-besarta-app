@@ -1,5 +1,8 @@
 query CartInput {
   cart {
+    attribute(key:"redeem_points"){
+      value
+    }
     lines {
       id
       cost {
@@ -10,6 +13,12 @@ query CartInput {
     }
   }
   discount {
-    discountClasses
+  discountClasses
+
+  metafield(
+    key: "loyalty_config"
+  ) {
+    jsonValue
   }
+}
 }
